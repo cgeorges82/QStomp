@@ -24,9 +24,12 @@
 #include <QtCore/QSet>
 #include <QtCore/QTextCodec>
 #include <QtNetwork/QTcpSocket>
+#include <QMetaMethod>
 
 static const QList<QByteArray> VALID_COMMANDS = QList<QByteArray>() << "ABORT" << "ACK" << "BEGIN" << "COMMIT" << "CONNECT" << "DISCONNECT"
 												<< "CONNECTED" << "MESSAGE" << "SEND" << "SUBSCRIBE" << "UNSUBSCRIBE" << "RECEIPT" << "ERROR";
+
+static const int qStompResponseFrameMetaTypeId = qRegisterMetaType<QStompResponseFrame>();
 
 QStompFrame::QStompFrame(QStompFramePrivate * d) : pd_ptr(d)
 {
@@ -63,13 +66,13 @@ void QStompFrame::setHeaderValue(const QString &key, const QVariant &value)
     d->m_header.insert(key.toLower(), value);
 }
 
-void QStompFrame::setHeaderValues(const QStompHeaderList &values)
+void QStompFrame::setHeaderValues(const QVariantMap &values)
 {
 	P_D(QStompFrame);
 	d->m_header = values;
 }
 
-QStompHeaderList QStompFrame::header() const
+QVariantMap QStompFrame::header() const
 {
 	const P_D(QStompFrame);
 	return d->m_header;
@@ -175,7 +178,7 @@ QByteArray QStompFrame::toByteArray() const
 
 	QByteArray ret = QByteArray("");
 
-	QStompHeaderList::ConstIterator it = d->m_header.constBegin();
+    QVariantMap::ConstIterator it = d->m_header.constBegin();
 	while (it != d->m_header.constEnd()) {
         QByteArray key = it.key().toLatin1();
         if (key == Stomp::HeaderConnectHost || key == Stomp::HeaderConnectHeartBeat ||
@@ -487,7 +490,7 @@ QByteArray QStompRequestFrame::toByteArray() const
     if(requestCommandIdx >= 0 && requestCommandIdx < Stomp::RequestCommandList.size()){
         ret = Stomp::RequestCommandList.at(requestCommandIdx).toLatin1()+"\n";
     }else{
-//        qWarning() << "The request to send is invalid";
+        qWarning() << "The request to send is invalid";
         return ret;
     }
 
@@ -594,7 +597,7 @@ QStompClient::QStompClient(QObject *parent) : QObject(parent), pd_ptr(new QStomp
 	P_D(QStompClient);
 	d->m_socket = NULL;
 	d->m_textCodec = QTextCodec::codecForName("utf-8");
-    d->m_connectionFrame.setHeaderValue(Stomp::HeaderConnectAcceptVersion, "1.2,1.1,1.0");
+    d->m_connectionFrame.setHeaderValue(Stomp::HeaderConnectAcceptVersion, Stomp::ProtocolList.join(','));
     d->m_connectionFrame.setHeaderValue(Stomp::HeaderConnectHost, "/");
     connect(&d->m_pingTimer, SIGNAL(timeout()), this, SLOT(_q_sendPing()));
     connect(&d->m_pongTimer, SIGNAL(timeout()), this, SLOT(_q_checkPong()));
@@ -602,6 +605,9 @@ QStompClient::QStompClient(QObject *parent) : QObject(parent), pd_ptr(new QStomp
 
 QStompClient::~QStompClient()
 {
+    QStompSubscription dummy(NULL, "*");
+    unregisterSubscription(dummy);
+    logout();
 	delete this->pd_ptr;
 }
 
@@ -640,14 +646,12 @@ QTcpSocket * QStompClient::socket() const
 
 void QStompClient::sendFrame(const QStompRequestFrame &frame)
 {
+    if(frame.type() == Stomp::RequestSubscribe || frame.type() == Stomp::RequestUnsubscribe){
+        qCritical() << "Please use registerSubcription and unregisterSubcription";
+        return;
+    }
 	P_D(QStompClient);
-	if (d->m_socket == NULL || d->m_socket->state() != QAbstractSocket::ConnectedState)
-		return;
-	QByteArray serialized = frame.toByteArray();
-    qDebug() << serialized;
-	serialized.append('\0');
-	serialized.append('\n');
-	d->m_socket->write(serialized);
+    d->send(frame.toByteArray().append(Stomp::EndFrame));
 }
 
 void QStompClient::setLogin(const QString &user, const QString &password)
@@ -682,12 +686,66 @@ void QStompClient::setHeartBeat(const int &outgoing, const int &incoming)
         d->m_connectionFrame.setHeaderValue(Stomp::HeaderConnectHeartBeat, QString("%1,%2").arg(outgoing).arg(incoming));
 }
 
+QStompSubscription QStompClient::createSubscription(QObject *subcriber, const char *subcriberSlot, const QString &destination, const QString& ack, const QVariantMap &headers) const
+{
+    return QStompSubscription(subcriber, subcriberSlot, destination, ack, headers);
+}
+
+void QStompClient::registerSubscription(QStompSubscription & sub)
+{
+    P_D(QStompClient);
+    if(!sub.isValid())
+        return;
+
+    if(!containsSubcription(sub)){
+        connect(sub.d->m_subcriber.data(), &QObject::destroyed,
+                this, &QStompClient::on_subcriberDestroyed, Qt::UniqueConnection);
+
+        d->m_subscriptions << sub;
+        doSubcription(sub);
+    }
+}
+
+void QStompClient::unregisterSubscription(QStompSubscription & sub)
+{
+    P_D(QStompClient);
+    doUnSubcription(sub);
+
+    // TODO disconnect &QObject::destroyed if no more subcription with sub.m_subcriber
+    int destinationSubcribed = 0; //(by the subscriber)
+    int subcriptionRemoved = 0;
+
+    // remove all subscription where :
+    //        elemSub.m_subcriber.isNULL || elemSub.m_subcriber==sub.m_subcriber
+    //  OR    sub.destination=="*" || elemSub.destination==sub.destination
+    for(int i = d->m_subscriptions.size()-1; i>=0; --i){
+        QStompSubscription elemSub = d->m_subscriptions[i];
+        if(elemSub.d->m_subcriber==sub.d->m_subcriber && !sub.d->m_subcriber.isNull())
+            destinationSubcribed++;
+        if(elemSub.d->m_subcriber.isNull() || elemSub.d->m_subcriber==sub.d->m_subcriber ||
+                sub.d->m_subcribRequestFrame.destination()=="*" || sub.d->m_subcribRequestFrame.destination()==elemSub.d->m_subcribRequestFrame.destination()){
+            d->m_subscriptions.removeAt(i);
+            subcriptionRemoved++;
+        }
+    }
+    if(!sub.d->m_subcriber.isNull() && destinationSubcribed!=0 && destinationSubcribed==subcriptionRemoved){
+        disconnect(sub.d->m_subcriber, &QObject::destroyed,
+                   this, &QStompClient::on_subcriberDestroyed);
+    }
+}
+
+void QStompClient::unregisterSubscription(QObject *subcriber, const QString &destination) {
+    QStompSubscription dummy(subcriber, destination);
+    unregisterSubscription(dummy);
+}
+
 void QStompClient::logout()
 {
+    doUnSubcriptions();
     this->sendFrame(QStompRequestFrame(Stomp::RequestDisconnect));
 }
 
-void QStompClient::send(const QString &destination, const QString &body, const QString &transactionId, const QStompHeaderList &headers)
+void QStompClient::send(const QString &destination, const QString &body, const QString &transactionId, const QVariantMap &headers)
 {
 	P_D(QStompClient);
     QStompRequestFrame frame(Stomp::RequestSend);
@@ -700,24 +758,7 @@ void QStompClient::send(const QString &destination, const QString &body, const Q
 	this->sendFrame(frame);
 }
 
-void QStompClient::subscribe(const QString &destination, Stomp::AckType ack, const QStompHeaderList &headers)
-{
-    QStompRequestFrame frame(Stomp::RequestSubscribe);
-	frame.setHeaderValues(headers);
-    frame.setDestination(destination);
-    frame.setAckType(ack);
-	this->sendFrame(frame);
-}
-
-void QStompClient::unsubscribe(const QString &destination, const QStompHeaderList &headers)
-{
-    QStompRequestFrame frame(Stomp::RequestUnsubscribe);
-	frame.setHeaderValues(headers);
-	frame.setDestination(destination);
-	this->sendFrame(frame);
-}
-
-void QStompClient::commit(const QString &transactionId, const QStompHeaderList &headers)
+void QStompClient::commit(const QString &transactionId, const QVariantMap &headers)
 {
     QStompRequestFrame frame(Stomp::RequestCommit);
 	frame.setHeaderValues(headers);
@@ -725,7 +766,7 @@ void QStompClient::commit(const QString &transactionId, const QStompHeaderList &
 	this->sendFrame(frame);
 }
 
-void QStompClient::begin(const QString &transactionId, const QStompHeaderList &headers)
+void QStompClient::begin(const QString &transactionId, const QVariantMap &headers)
 {
     QStompRequestFrame frame(Stomp::RequestBegin);
 	frame.setHeaderValues(headers);
@@ -733,7 +774,7 @@ void QStompClient::begin(const QString &transactionId, const QStompHeaderList &h
 	this->sendFrame(frame);
 }
 
-void QStompClient::abort(const QString &transactionId, const QStompHeaderList &headers)
+void QStompClient::abort(const QString &transactionId, const QVariantMap &headers)
 {
     QStompRequestFrame frame(Stomp::RequestAbort);
 	frame.setHeaderValues(headers);
@@ -741,7 +782,7 @@ void QStompClient::abort(const QString &transactionId, const QStompHeaderList &h
 	this->sendFrame(frame);
 }
 
-void QStompClient::ack(const QString &messageId, const QString &transactionId, const QStompHeaderList &headers)
+void QStompClient::ack(const QString &messageId, const QString &transactionId, const QVariantMap &headers)
 {
     QStompRequestFrame frame(Stomp::RequestAck);
 	frame.setHeaderValues(headers);
@@ -751,7 +792,7 @@ void QStompClient::ack(const QString &messageId, const QString &transactionId, c
     this->sendFrame(frame);
 }
 
-void QStompClient::nack(const QString &messageId, const QString &transactionId, const QStompHeaderList &headers)
+void QStompClient::nack(const QString &messageId, const QString &transactionId, const QVariantMap &headers)
 {
     QStompRequestFrame frame(Stomp::RequestNack);
     frame.setHeaderValues(headers);
@@ -851,7 +892,9 @@ void QStompClient::stompConnected(QStompResponseFrame frame) {
     P_D(QStompClient);
     d->m_connectedHeaders = frame.header();
     d->m_outgoingPingInternal = d->m_incomingPongInternal = 0;
-    QStringList heartBeat = d->m_connectedHeaders[Stomp::HeaderConnectedHeartBeat].toString().split(",");
+    d->m_stompVersion = static_cast<Stomp::Protocol>( Stomp::ProtocolList.indexOf( frame.headerValue(Stomp::HeaderConnectedVersion).toString() ));
+
+    QStringList heartBeat = frame.headerValue(Stomp::HeaderConnectedHeartBeat).toString().split(",");
     if(heartBeat.size() == 2){
         // In server's response heartBeat parameters are in server context
         // Therefore, these parameters are inverted in relation to the client's 'CONNECT' request
@@ -871,14 +914,69 @@ void QStompClient::stompConnected(QStompResponseFrame frame) {
         d->m_lastPong = QDateTime::currentDateTime();
         d->m_pongTimer.start();
     }
-    // TODO subscriptions
+
+    doSubcriptions();
     emit frameConnectedReceived();
 }
 
-void QStompClient::on_socketConnected() {
-    // do login
+bool QStompClient::containsSubcription(const QStompSubscription &) const
+{
+    return false;
+}
+
+void QStompClient::doSubcriptions()
+{
     P_D(QStompClient);
-    d->m_connectionFrame.setHeaderValue(Stomp::HeaderConnectAcceptVersion, "1.2,1.1,1.0");
+    for(QStompSubscription sub : d->m_subscriptions){
+        doSubcription(sub);
+    }
+}
+
+void QStompClient::doSubcription(QStompSubscription & sub)
+{
+    P_D(QStompClient);
+    if(!d->m_connectedHeaders.isEmpty()){
+        if(d->m_stompVersion != Stomp::ProtocolStomp_1_0){
+            QString sub_id = QString("sub-%1").arg(d->counter++);
+            sub.d->m_subcribRequestFrame.setSubscriptionId(sub_id);
+//            sub.d->m_welcomeMessage.setSubscriptionId(sub_id);
+        }
+        d->send( sub.d->m_subcribRequestFrame.toByteArray().append(Stomp::EndFrame) );
+        if(sub.d->m_welcomeMessage.isValid()){
+            sendFrame(sub.d->m_welcomeMessage);
+        }
+    }
+}
+
+void QStompClient::doUnSubcriptions()
+{
+    P_D(QStompClient);
+    for(QStompSubscription sub : d->m_subscriptions){
+        doUnSubcription(sub);
+    }
+}
+
+void QStompClient::doUnSubcription(QStompSubscription &sub)
+{
+    P_D(QStompClient);
+    if(!d->m_connectedHeaders.isEmpty()) {
+        QStompRequestFrame unSub(Stomp::RequestUnsubscribe);
+        unSub.setHeaderValues(sub.d->m_subcribRequestFrame.header());
+//        if(d->m_stompVersion != Stomp::ProtocolStomp_1_0){
+//            QString sub_id = sub.d->m_subcribRequestFrame.subscriptionId();
+//            sub.d->m_goodbyeMessage.setSubscriptionId( sub_id );
+//        }
+        if(sub.d->m_goodbyeMessage.isValid()) {
+            sendFrame(sub.d->m_goodbyeMessage);
+        }
+        d->send( unSub.toByteArray().append(Stomp::EndFrame) );
+    }
+}
+
+void QStompClient::on_socketConnected() {
+    P_D(QStompClient);
+    // do login
+
     // TODO check required headers
     this->sendFrame(d->m_connectionFrame);
 
@@ -895,12 +993,21 @@ void QStompClient::on_socketDisconnected() {
     emit socketDisconnected();
 }
 
+void QStompClient::on_subcriberDestroyed(QObject * subscriber)
+{
+    if(subscriber == NULL)
+        subscriber = sender();
+    QStompSubscription sub(subscriber, "*");
+    unregisterSubscription(sub);
+}
+
 void QStompClientPrivate::_q_checkPong(){
     if(this->m_socket && this->m_socket->isValid() && this->m_incomingPongInternal > 0){
         qint64 elapted = this->m_lastPong.msecsTo(QDateTime::currentDateTime());
         if(elapted > this->m_incomingPongInternal*2) {
             qWarning() << "Connexion with server too long time without PING";
-            this->m_socket->close();
+            this->m_socket->disconnectFromHost();
+//            this->m_socket->close();
         }
     }else{
         // ensure pong Timer is stopped
@@ -912,11 +1019,16 @@ void QStompClientPrivate::_q_sendPing(){
     this->m_pingTimer.stop();
     if(this->m_socket && this->m_socket->isValid() && m_outgoingPingInternal > 0) {
         qDebug() << "<<< PING";
-        this->m_socket->write(Stomp::PingContent);
+        this->send(Stomp::PingContent);
         this->m_pingTimer.start(m_outgoingPingInternal);
     }
 }
 
+void QStompClientPrivate::send(const QByteArray& serialized){
+    if (this->m_socket == NULL || this->m_socket->state() != QAbstractSocket::ConnectedState)
+        return;
+    this->m_socket->write(serialized);
+}
 
 void QStompClientPrivate::_q_socketReadyRead()
 {
@@ -1017,4 +1129,115 @@ quint32 QStompClientPrivate::findMessageBytes()
 	}
 	else
 		return (quint32) end+2;
+}
+
+
+QStompSubscription::QStompSubscription(QObject *subcriber, const QString &destination, const QVariantMap &headers)
+    : d(new QStompSubScriptionData)
+{
+    d->m_subcriber = subcriber;
+    d->m_subcribRequestFrame = QStompRequestFrame(Stomp::RequestSubscribe);
+    d->m_subcribRequestFrame.setHeaderValues(headers);
+    d->m_subcribRequestFrame.setDestination(destination);
+}
+
+QStompSubscription::QStompSubscription(QObject *subcriber, const char *subcriberSlot, const QString &destination, const QString &ack, const QVariantMap &headers)
+{
+    d->m_subcriber = subcriber;
+    d->m_subcribRequestFrame = QStompRequestFrame(Stomp::RequestSubscribe);
+    d->m_subcribRequestFrame.setHeaderValues(headers);
+    d->m_subcribRequestFrame.setDestination(destination);
+    int ackIdx = Stomp::AckTypeList.indexOf(ack);
+    d->m_subcribRequestFrame.setAckType( ackIdx>=0 ? static_cast<Stomp::AckType>(ackIdx) : Stomp::AckAuto );
+    assignMethodSlot(subcriberSlot);
+}
+
+QStompSubscription::QStompSubscription( QObject *subcriber, const char* subcriberSlot, const QString &destination, Stomp::AckType ack, const QVariantMap &headers)
+    : d(new QStompSubScriptionData)
+{
+    d->m_subcriber = subcriber;
+    d->m_subcribRequestFrame = QStompRequestFrame(Stomp::RequestSubscribe);
+    d->m_subcribRequestFrame.setHeaderValues(headers);
+    d->m_subcribRequestFrame.setDestination(destination);
+    d->m_subcribRequestFrame.setAckType(ack);
+
+    assignMethodSlot(subcriberSlot);
+}
+
+QStompSubscription::QStompSubscription(const QStompSubscription &other)
+    : d(other.d) {
+}
+
+QStompSubscription &QStompSubscription::operator=(const QStompSubscription &other) {
+    if (this != &other)
+        d.operator=(other.d);
+    return *this;
+}
+
+QStompSubscription::~QStompSubscription() {
+}
+
+void QStompSubscription::setWelcomeMessage(const QString &body, const QVariantMap &headers)
+{
+    d->m_welcomeMessage = QStompRequestFrame(Stomp::RequestSend);
+    d->m_welcomeMessage.setHeaderValues(headers);
+    d->m_welcomeMessage.setDestination(d->m_subcribRequestFrame.destination());
+    d->m_welcomeMessage.setBody(body);
+}
+
+void QStompSubscription::resetWelcomeMessage()
+{
+    d->m_welcomeMessage = QStompRequestFrame();
+}
+
+void QStompSubscription::setGoodByeMessage(const QString &body, const QVariantMap &headers)
+{
+    d->m_goodbyeMessage = QStompRequestFrame(Stomp::RequestSend);
+    d->m_goodbyeMessage.setDestination(d->m_subcribRequestFrame.destination());
+    d->m_goodbyeMessage.setHeaderValues(headers);
+    d->m_goodbyeMessage.setBody(body);
+}
+
+void QStompSubscription::resetGoodByeMessage()
+{
+    d->m_goodbyeMessage = QStompRequestFrame();
+}
+
+bool QStompSubscription::isValid() const
+{
+    return d->m_subcriber && d->m_slotMethod.isValid();
+}
+
+
+void QStompSubscription::fireFrameMessage(QStompResponseFrame frame)
+{
+    if(isValid()){
+        if(d->m_slotMethod.parameterType(0) == QMetaType::QVariantMap) {
+            QVariantMap msg = {
+                { "header", frame.header() },
+                { "body", frame.body() }
+            };
+            d->m_slotMethod.invoke(d->m_subcriber, Qt::QueuedConnection, Q_ARG(QVariantMap, msg));
+        }else{
+            d->m_slotMethod.invoke(d->m_subcriber, Qt::QueuedConnection, Q_ARG(QStompResponseFrame, frame));
+        }
+    }
+}
+
+void QStompSubscription::assignMethodSlot(const char *subcriberSlot) {
+    if(d->m_subcriber) {
+        int methodIdx = d->m_subcriber->metaObject()->indexOfSlot(subcriberSlot);
+        if(methodIdx != -1){
+            QMetaMethod method = d->m_subcriber->metaObject()->method(methodIdx);
+            if(method.parameterCount() == 1 &&
+                    (method.parameterType(0)==QMetaType::QVariantMap || method.parameterType(0) == qStompResponseFrameMetaTypeId)){
+                d->m_slotMethod = method;
+            }else{
+                qCritical() << "Filled slot method don't have good signature" << method.methodSignature() << endl
+                            << "That must be 'void slotMethod(QVariantMap)'";
+            }
+        }else{
+            qCritical() << "method " << subcriberSlot << "is not a slot";
+        }
+    }
 }

@@ -27,6 +27,8 @@
 #include <QtCore/QString>
 #include <QtCore/QMap>
 #include <QtNetwork/QAbstractSocket>
+#include <QPointer>
+#include <QExplicitlySharedDataPointer>
 
 class QTcpSocket;
 class QAuthenticator;
@@ -35,11 +37,10 @@ class QTextCodec;
 class QStompFramePrivate;
 class QStompResponseFramePrivate;
 class QStompRequestFramePrivate;
-//class QStompRequestSubscribeFramePrivate;
+class QStompSubScriptionData;
 class QStompClientPrivate;
+class QStompClient;
 
-typedef QList< QPair<QByteArray, QByteArray> > QStompHeaderListOld;
-typedef QVariantMap QStompHeaderList;
 
 namespace Stomp {
     enum RequestCommand {
@@ -73,6 +74,14 @@ namespace Stomp {
     };
     const QList<QString> AckTypeList = {"auto", "client", "client-individual"};
 
+    enum Protocol{
+        ProtocolInvalid = -1,
+        ProtocolStomp_1_2,
+        ProtocolStomp_1_1,
+        ProtocolStomp_1_0
+    };
+    const QStringList ProtocolList = {"1.2", "1.1", "1.0"};
+
     const QString HeaderConnectAcceptVersion("accept-version");
     const QString HeaderConnectHost("host");
     const QString HeaderConnectHeartBeat("heart-beat");
@@ -93,190 +102,214 @@ namespace Stomp {
     const QString HeaderResponseMessage("message");
 
     const QByteArray PingContent(1, 0x0A);
+    const QByteArray EndFrame = QByteArray().append('\0').append('\n');
 }
 
 class QSTOMP_SHARED_EXPORT QStompFrame
 {
-	P_DECLARE_PRIVATE(QStompFrame)
+    P_DECLARE_PRIVATE(QStompFrame)
 public:
-	virtual ~QStompFrame();
+    virtual ~QStompFrame();
 
-	QStompFrame &operator=(const QStompFrame &other);
+    QStompFrame &operator=(const QStompFrame &other);
 
     void setHeaderValue(const QString &key, const QVariant &value);
-	void setHeaderValues(const QStompHeaderList &values);
-	QStompHeaderList header() const;
+    void setHeaderValues(const QVariantMap &values);
+    QVariantMap header() const;
     bool headerHasKey(const QString &key) const;
     QList<QString> headerKeys() const;
     QVariant headerValue(const QString &key) const;
     void removeHeaderValue(const QString &key);
     void removeAllHeaders();
 
-	bool hasContentLength() const;
+    bool hasContentLength() const;
     int contentLength() const;
-	void setContentLength(uint len);
-	bool hasContentType() const;
-	QByteArray contentType() const;
-	void setContentType(const QByteArray &type);
-	bool hasContentEncoding() const;
-	QByteArray contentEncoding() const;
-	void setContentEncoding(const QByteArray & name);
-	void setContentEncoding(const QTextCodec * codec);
+    void setContentLength(uint len);
+    bool hasContentType() const;
+    QByteArray contentType() const;
+    void setContentType(const QByteArray &type);
+    bool hasContentEncoding() const;
+    QByteArray contentEncoding() const;
+    void setContentEncoding(const QByteArray & name);
+    void setContentEncoding(const QTextCodec * codec);
 
-	virtual QByteArray toByteArray() const;
-	bool isValid() const;
+    virtual QByteArray toByteArray() const;
+    bool isValid() const;
 
-	QString body() const;
-	QByteArray rawBody() const;
+    QString body() const;
+    QByteArray rawBody() const;
 
-	void setBody(const QString &body);
-	void setRawBody(const QByteArray &body);
-
-protected:
-	virtual bool parseHeaderLine(const QByteArray &line, int number);
-	bool parse(const QByteArray &str);
-	void setValid(bool);
+    void setBody(const QString &body);
+    void setRawBody(const QByteArray &body);
 
 protected:
-	QStompFrame(QStompFramePrivate * d);
-	QStompFrame(const QStompFrame &other, QStompFramePrivate * d);
+    virtual bool parseHeaderLine(const QByteArray &line, int number);
+    bool parse(const QByteArray &str);
+    void setValid(bool);
 
-	QStompFramePrivate * const pd_ptr;
+protected:
+    QStompFrame(QStompFramePrivate * d);
+    QStompFrame(const QStompFrame &other, QStompFramePrivate * d);
+
+    QStompFramePrivate * const pd_ptr;
 };
 
 class QSTOMP_SHARED_EXPORT QStompResponseFrame : public QStompFrame
 {
-	P_DECLARE_PRIVATE(QStompResponseFrame)
+    P_DECLARE_PRIVATE(QStompResponseFrame)
 public:
-	QStompResponseFrame();
-	QStompResponseFrame(const QStompResponseFrame &other);
-	QStompResponseFrame(const QByteArray &frame);
+    QStompResponseFrame();
+    QStompResponseFrame(const QStompResponseFrame &other);
+    QStompResponseFrame(const QByteArray &frame);
     QStompResponseFrame(Stomp::ResponseCommand type);
-	QStompResponseFrame &operator=(const QStompResponseFrame &other);
+    QStompResponseFrame &operator=(const QStompResponseFrame &other);
 
     void setType(Stomp::ResponseCommand type);
     Stomp::ResponseCommand type() const;
 
-	bool hasDestination() const;
+    bool hasDestination() const;
     QString destination() const;
     void setDestination(const QString &value);
 
-	bool hasSubscriptionId() const;
+    bool hasSubscriptionId() const;
     QString subscriptionId() const;
     void setSubscriptionId(const QString &value);
 
-	bool hasMessageId() const;
+    bool hasMessageId() const;
     QString messageId() const;
     void setMessageId(const QString &value);
 
-	bool hasReceiptId() const;
+    bool hasReceiptId() const;
     QString receiptId() const;
     void setReceiptId(const QString &value);
 
-	bool hasMessage() const;
+    bool hasMessage() const;
     QString message() const;
     void setMessage(const QString &value);
 
-	QByteArray toByteArray() const;
+    QByteArray toByteArray() const;
 
 protected:
-	bool parseHeaderLine(const QByteArray &line, int number);
+    bool parseHeaderLine(const QByteArray &line, int number);
 };
+
+Q_DECLARE_METATYPE(QStompResponseFrame)
 
 class QSTOMP_SHARED_EXPORT QStompRequestFrame : public QStompFrame
 {
-	P_DECLARE_PRIVATE(QStompRequestFrame)
+    P_DECLARE_PRIVATE(QStompRequestFrame)
 public:
 
-	QStompRequestFrame();
-	QStompRequestFrame(const QStompRequestFrame &other);
-	QStompRequestFrame(const QByteArray &frame);
+    QStompRequestFrame();
+    QStompRequestFrame(const QStompRequestFrame &other);
+    QStompRequestFrame(const QByteArray &frame);
     QStompRequestFrame(Stomp::RequestCommand type);
-	QStompRequestFrame &operator=(const QStompRequestFrame &other);
+    QStompRequestFrame &operator=(const QStompRequestFrame &other);
 
     void setType(Stomp::RequestCommand type);
     Stomp::RequestCommand type() const;
 
-	bool hasDestination() const;
+    bool hasDestination() const;
     QString destination() const;
     void setDestination(const QString &value);
 
-	bool hasTransactionId() const;
+    bool hasTransactionId() const;
     QString transactionId() const;
     void setTransactionId(const QString &value);
 
-	bool hasMessageId() const;
+    bool hasMessageId() const;
     QString messageId() const;
     void setMessageId(const QString &value);
 
-	bool hasReceiptId() const;
+    bool hasReceiptId() const;
     QString receiptId() const;
     void setReceiptId(const QString &value);
 
-	bool hasAckType() const;
+    bool hasAckType() const;
     Stomp::AckType ackType() const;
     void setAckType(Stomp::AckType type);
 
-	bool hasSubscriptionId() const;
+    bool hasSubscriptionId() const;
     QString subscriptionId() const;
     void setSubscriptionId(const QString &value);
 
-	QByteArray toByteArray() const;
+    QByteArray toByteArray() const;
 
 protected:
-	bool parseHeaderLine(const QByteArray &line, int number);
+    bool parseHeaderLine(const QByteArray &line, int number);
 
 //    QStompRequestFrame(QStompRequestFramePrivate * d);
 //    QStompRequestFrame(const QStompRequestFrame &other, QStompRequestFramePrivate * d);
 };
 
-//class QStompRequestSubscribeFrame : public QStompRequestFrame {
-//    P_DECLARE_PRIVATE(QStompRequestSubscribeFrame)
-//public:
-//    QStompRequestSubscribeFrame();
-//    QStompRequestSubscribeFrame(const QStompRequestSubscribeFrame &other);
-//    QStompRequestSubscribeFrame(const QByteArray &frame);
-//    QStompRequestSubscribeFrame &operator=(const QStompRequestSubscribeFrame &other);
-//};
+class QSTOMP_SHARED_EXPORT QStompSubscription {
+public:
+//    typedef void (*frameMessageReceived)(QStompResponseFrame);
+    QStompSubscription(QObject *subcriber, const char *subcriberSlot, const QString &destination, const QString& ack = "auto", const QVariantMap &headers = QVariantMap());
+    QStompSubscription(QObject *subcriber, const char *subcriberSlot, const QString &destination, Stomp::AckType ack = Stomp::AckAuto, const QVariantMap &headers = QVariantMap());
+    QStompSubscription(const QStompSubscription &other);
+    QStompSubscription &operator=(const QStompSubscription &other);
+    virtual ~QStompSubscription();
+
+    void setWelcomeMessage(const QString &body, const QVariantMap &headers = QVariantMap());
+    void resetWelcomeMessage();
+
+    void setGoodByeMessage(const QString &body, const QVariantMap &headers = QVariantMap());
+    void resetGoodByeMessage();
+
+    bool isValid() const;
+
+protected:
+    QStompSubscription(QObject *subcriber, const QString &destination, const QVariantMap &headers = QVariantMap());
+    void fireFrameMessage(QStompResponseFrame);
+    void assignMethodSlot(const char * subcriberSlot);
+
+protected:
+    QExplicitlySharedDataPointer<QStompSubScriptionData> d;
+
+    friend class QStompClient;
+};
 
 class QSTOMP_SHARED_EXPORT QStompClient : public QObject
 {
-	Q_OBJECT
-	P_DECLARE_PRIVATE(QStompClient)
+    Q_OBJECT
+    P_DECLARE_PRIVATE(QStompClient)
 public:
 
-	explicit QStompClient(QObject *parent = 0);
-	virtual ~QStompClient();
+    explicit QStompClient(QObject *parent = 0);
+    virtual ~QStompClient();
 
-	enum Error {
-		NoError,
-		UnknownError,
-		HostNotFound,
-		ConnectionRefused,
-		UnexpectedClose
-	};
+    enum Error {
+        NoError,
+        UnknownError,
+        HostNotFound,
+        ConnectionRefused,
+        UnexpectedClose
+    };
 
-	void connectToHost(const QString &hostname, quint16 port = 61613);
-	void setSocket(QTcpSocket *socket);
-	QTcpSocket * socket() const;
+    void connectToHost(const QString &hostname, quint16 port = 61613);
+    void setSocket(QTcpSocket *socket);
+    QTcpSocket * socket() const;
 
-	void sendFrame(const QStompRequestFrame &frame);
+    void sendFrame(const QStompRequestFrame &frame);
 
     void setLogin(const QString &user = QString(), const QString &password = QString());
     void setVirtualHost(const QString &host = QString("/"));
     void setHeartBeat(const int &outgoing = 0, const int &incoming = 0);
 
-	void logout();
+    QStompSubscription createSubscription(QObject *subcriber, const char *subcriberSlot, const QString &destination, const QString &ack = "auto", const QVariantMap &headers = QVariantMap()) const;
+    void registerSubscription(QStompSubscription &);
+    void unregisterSubscription(QStompSubscription &);
+    void unregisterSubscription(QObject *subcriber, const QString &destination);
 
-    void send(const QString &destination, const QString &body, const QString &transactionId = QString(), const QStompHeaderList &headers = QStompHeaderList());
-    void subscribe(const QString &destination, Stomp::AckType ack, const QStompHeaderList &headers = QStompHeaderList());
-    void unsubscribe(const QString &destination, const QStompHeaderList &headers = QStompHeaderList());
-    void commit(const QString &transactionId, const QStompHeaderList &headers = QStompHeaderList());
-    void begin(const QString &transactionId, const QStompHeaderList &headers = QStompHeaderList());
-    void abort(const QString &transactionId, const QStompHeaderList &headers = QStompHeaderList());
-    void ack(const QString &messageId, const QString &transactionId = QString(), const QStompHeaderList &headers = QStompHeaderList());
+    void logout();
+    void send(const QString &destination, const QString &body, const QString &transactionId = QString(), const QVariantMap &headers = QVariantMap());
+    void commit(const QString &transactionId, const QVariantMap &headers = QVariantMap());
+    void begin(const QString &transactionId, const QVariantMap &headers = QVariantMap());
+    void abort(const QString &transactionId, const QVariantMap &headers = QVariantMap());
+    void ack(const QString &messageId, const QString &transactionId = QString(), const QVariantMap &headers = QVariantMap());
     // not available for stomp v1.0
-    void nack(const QString &messageId, const QString &transactionId = QString(), const QStompHeaderList &headers = QStompHeaderList());
+    void nack(const QString &messageId, const QString &transactionId = QString(), const QVariantMap &headers = QVariantMap());
 
     bool isConnected() const;
     QString getConnectedStompVersion() const;
@@ -285,22 +318,22 @@ public:
     int getHeartBeatPingOutGoing() const;
     int getHeartBeatPongInComming() const;
 
-	QAbstractSocket::SocketState socketState() const;
-	QAbstractSocket::SocketError socketError() const;
-	QString socketErrorString() const;
+    QAbstractSocket::SocketState socketState() const;
+    QAbstractSocket::SocketError socketError() const;
+    QString socketErrorString() const;
 
-	QByteArray contentEncoding();
-	void setContentEncoding(const QByteArray & name);
-	void setContentEncoding(const QTextCodec * codec);
+    QByteArray contentEncoding();
+    void setContentEncoding(const QByteArray & name);
+    void setContentEncoding(const QTextCodec * codec);
 
 public Q_SLOTS:
     void disconnectFromHost();
 
 Q_SIGNALS:
     void socketConnected();
-	void socketDisconnected();
-	void socketError(QAbstractSocket::SocketError);
-	void socketStateChanged(QAbstractSocket::SocketState);
+    void socketDisconnected();
+    void socketError(QAbstractSocket::SocketError);
+    void socketStateChanged(QAbstractSocket::SocketState);
 
     void frameConnectedReceived();
     void frameMessageReceived(QStompResponseFrame);
@@ -309,13 +342,19 @@ Q_SIGNALS:
 
 protected:
     void stompConnected(QStompResponseFrame);
+    bool containsSubcription(const QStompSubscription&) const;
+    void doSubcriptions();
+    void doSubcription(QStompSubscription &);
+    void doUnSubcriptions();
+    void doUnSubcription(QStompSubscription&);
 protected slots:
     void on_socketConnected();
     void on_socketDisconnected();
+    void on_subcriberDestroyed(QObject*);
 
 
 private:
-	QStompClientPrivate * const pd_ptr;
+    QStompClientPrivate * const pd_ptr;
     Q_PRIVATE_SLOT(pd_func(), void _q_socketReadyRead())
     Q_PRIVATE_SLOT(pd_func(), void _q_sendPing())
     Q_PRIVATE_SLOT(pd_func(), void _q_checkPong())
