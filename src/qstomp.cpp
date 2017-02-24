@@ -676,7 +676,7 @@ void QStompClient::setVirtualHost(const QString &host) {
 void QStompClient::setHeartBeat(const int &outgoing, const int &incoming)
 {
     P_D(QStompClient);
-    if(incoming == 0 || outgoing == 0)
+    if(incoming == 0 && outgoing == 0)
         d->m_connectionFrame.removeHeaderValue(Stomp::HeaderConnectHeartBeat);
     else
         d->m_connectionFrame.setHeaderValue(Stomp::HeaderConnectHeartBeat, QString("%1,%2").arg(outgoing).arg(incoming));
@@ -785,13 +785,16 @@ QString QStompClient::getConnectedStompSession() const
     return d->m_connectedHeaders.value(Stomp::HeaderConnectedSession).toString();
 }
 
-void QStompClient::getConnectedStompHeartBeat(int &outgoing, int &incoming) const
+int QStompClient::getHeartBeatPingOutGoing() const
 {
-    incoming = outgoing = 0;
     const P_D(QStompClient);
-    if(d->m_connectedHeaders.contains(Stomp::HeaderConnectedHeartBeat)){
+    return d->m_outgoingPingInternal;
+}
 
-    }
+int QStompClient::getHeartBeatPongInComming() const
+{
+    const P_D(QStompClient);
+    return d->m_incomingPongInternal;
 }
 
 QAbstractSocket::SocketState QStompClient::socketState() const
@@ -850,20 +853,23 @@ void QStompClient::stompConnected(QStompResponseFrame frame) {
     d->m_outgoingPingInternal = d->m_incomingPongInternal = 0;
     QStringList heartBeat = d->m_connectedHeaders[Stomp::HeaderConnectedHeartBeat].toString().split(",");
     if(heartBeat.size() == 2){
+        // In server's response heartBeat parameters are in server context
+        // Therefore, these parameters are inverted in relation to the client's 'CONNECT' request
         d->m_outgoingPingInternal = heartBeat[1].toInt();
         d->m_incomingPongInternal = heartBeat[0].toInt();
-        qDebug() << "heartBeat outgoing:" << d->m_outgoingPingInternal;
-        qDebug() << "heartBeat incoming:" << d->m_incomingPongInternal;
     }
     if(d->m_outgoingPingInternal > 0){
+        qDebug() << "heartBeat outgoing:" << d->m_outgoingPingInternal << "(must send PING to server)";
+        d->m_pongTimer.setInterval(d->m_outgoingPingInternal);
         d->m_pingTimer.setSingleShot(true);
         d->m_pingTimer.start(d->m_outgoingPingInternal);
     }
-    if(d->m_incomingPongInternal > 0){
+    if(d->m_incomingPongInternal > 0) {
+        qDebug() << "heartBeat incoming:" << d->m_incomingPongInternal << "(must receive PING from server)";
         d->m_pongTimer.setInterval(d->m_incomingPongInternal);
         d->m_pongTimer.setSingleShot(false);
-        d->m_pongTimer.start();
         d->m_lastPong = QDateTime::currentDateTime();
+        d->m_pongTimer.start();
     }
     // TODO subscriptions
     emit frameConnectedReceived();
@@ -890,12 +896,15 @@ void QStompClient::on_socketDisconnected() {
 }
 
 void QStompClientPrivate::_q_checkPong(){
-    if(this->m_incomingPongInternal > 0){
+    if(this->m_socket && this->m_socket->isValid() && this->m_incomingPongInternal > 0){
         qint64 elapted = this->m_lastPong.msecsTo(QDateTime::currentDateTime());
         if(elapted > this->m_incomingPongInternal*2) {
-            // TODO close connection
-            qWarning() << "TODO CLOSE Connection";
+            qWarning() << "Connexion with server too long time without PING";
+            this->m_socket->close();
         }
+    }else{
+        // ensure pong Timer is stopped
+        this->m_pongTimer.stop();
     }
 }
 
@@ -904,7 +913,6 @@ void QStompClientPrivate::_q_sendPing(){
     if(this->m_socket && this->m_socket->isValid() && m_outgoingPingInternal > 0) {
         qDebug() << "<<< PING";
         this->m_socket->write(Stomp::PingContent);
-        this->m_pingTimer.setSingleShot(true);
         this->m_pingTimer.start(m_outgoingPingInternal);
     }
 }

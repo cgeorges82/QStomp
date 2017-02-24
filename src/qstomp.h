@@ -282,9 +282,8 @@ public:
     QString getConnectedStompVersion() const;
     QString getConnectedStompServeur() const;
     QString getConnectedStompSession() const;
-    void getHeartBeatPingOutGoing(int &outgoing, int &incoming) const;
-    void getHeartBeatPongInComming(int &outgoing, int &incoming) const;
-    void getConnectedStompHeartBeat(int &outgoing, int &incoming) const;
+    int getHeartBeatPingOutGoing() const;
+    int getHeartBeatPongInComming() const;
 
 	QAbstractSocket::SocketState socketState() const;
 	QAbstractSocket::SocketError socketError() const;
