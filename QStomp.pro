@@ -22,17 +22,25 @@ QT += network
 QT -= gui
 TARGET = qstomp
 TEMPLATE = lib
+CONFIG *= c++14
+DEFINES *= QT_MESSAGELOGCONTEXT
 DEFINES += QSTOMP_LIBRARY
 DEPENDPATH += src
 INCLUDEPATH += src
 SOURCES += src/qstomp.cpp
 HEADERS += src/qstomp.h \
     src/qstomp_global.h \
-	src/qstomp_p.h
+    src/qstomp_p.h
 
 target.path = $$[QT_INSTALL_LIBS]
 dist_headers.path = $$[QT_INSTALL_HEADERS]/QStomp
 dist_headers.files = src/qstomp.h src/qstomp_global.h
+
+CONFIG(debug, debug|release) {
+    TARGET = qstompd
+} else {
+    TARGET = qstomp
+} # CONFIG(debug, debug|release)
 
 VERSION = 0.3.2
 INSTALLS += target dist_headers

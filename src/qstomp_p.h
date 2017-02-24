@@ -22,45 +22,64 @@
 #define QSTOMP_P_H
 
 #include <QtCore/QObject>
+#include <QtCore/QTimer>
+#include <QtCore/QDateTime>
 
 class QStompFramePrivate
 {
 public:
-	QStompHeaderList m_header;
-	bool m_valid;
-	QByteArray m_body;
-	const QTextCodec * m_textCodec;
+    QStompHeaderList m_header;
+    bool m_valid;
+    QByteArray m_body;
+    const QTextCodec * m_textCodec;
 };
 
 class QStompResponseFramePrivate : public QStompFramePrivate
 {
 public:
-	QStompResponseFrame::ResponseType m_type;
+    Stomp::ResponseCommand m_type;
 };
 
 class QStompRequestFramePrivate : public QStompFramePrivate
 {
 public:
-	QStompRequestFrame::RequestType m_type;
+    Stomp::RequestCommand m_type;
 };
+
+//class QStompRequestSubscribeFramePrivate : public QStompRequestFramePrivate
+//{
+//public:
+
+//};
 
 class QStompClientPrivate
 {
-	P_DECLARE_PUBLIC(QStompClient)
+    P_DECLARE_PUBLIC(QStompClient)
 public:
-	QStompClientPrivate(QStompClient * q) : pq_ptr(q) {}
+    QStompClientPrivate(QStompClient * q) : m_connectionFrame(Stomp::RequestConnect),
+      m_outgoingPingInternal(0), m_incomingPongInternal(0),
+      pq_ptr(q) { }
+    QTimer m_pingTimer, m_pongTimer;
+    QTcpSocket * m_socket;
+    const QTextCodec * m_textCodec;
 
-	QTcpSocket * m_socket;
-	const QTextCodec * m_textCodec;
+    QByteArray m_buffer;
+//	QList<QStompResponseFrame> m_framebuffer;
 
-	QByteArray m_buffer;
-	QList<QStompResponseFrame> m_framebuffer;
+    QStompRequestFrame m_connectionFrame;
+    QStompHeaderList m_connectedHeaders;
+    int m_outgoingPingInternal; // PING emission
+    int m_incomingPongInternal; // PONG receive
 
-	quint32 findMessageBytes();
+    QDateTime m_lastPong;
 
-	void _q_socketReadyRead();
+    quint32 findMessageBytes();
+
+    void _q_socketReadyRead();
+    void _q_sendPing();
+    void _q_checkPong();
 private:
-	QStompClient * const pq_ptr;
+    QStompClient * const pq_ptr;
 };
 
 #endif // QSTOMP_P_H
