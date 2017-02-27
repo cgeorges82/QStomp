@@ -64,7 +64,7 @@ class QStompClientPrivate
 public:
     QStompClientPrivate(QStompClient * q) : m_connectionFrame(Stomp::RequestConnect),
         m_stompVersion(Stomp::ProtocolInvalid),
-        m_outgoingPingInternal(0), m_incomingPongInternal(0), counter(0),
+        m_outgoingPingInternal(0), m_incomingPongInternal(0), m_selfSendFeature(false), counter(0),
         pq_ptr(q) { }
     QTimer m_pingTimer, m_pongTimer;
     QTcpSocket * m_socket;
@@ -77,10 +77,14 @@ public:
     QVariantMap m_connectedHeaders;
     Stomp::Protocol m_stompVersion;
     int m_outgoingPingInternal; // PING emission
-    int m_incomingPongInternal; // PONG receive
+    int m_incomingPongInternal; // PING receive from server
+	QDateTime m_lastReceivedPing;
+
+    bool m_selfSendFeature;
+    QString m_selfSendKey;
+
     int counter;
 
-    QDateTime m_lastPong;
     QList<QStompSubscription> m_subscriptions;
 
     quint32 findMessageBytes();

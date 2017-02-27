@@ -113,13 +113,13 @@ public:
 
     QStompFrame &operator=(const QStompFrame &other);
 
-    void setHeaderValue(const QString &key, const QVariant &value);
-    void setHeaderValues(const QVariantMap &values);
+    void setHeader(const QString &key, const QVariant &value);
+    void setHeader(const QVariantMap &values);
     QVariantMap header() const;
     bool headerHasKey(const QString &key) const;
     QList<QString> headerKeys() const;
     QVariant headerValue(const QString &key) const;
-    void removeHeaderValue(const QString &key);
+    void removeHeader(const QString &key);
     void removeAllHeaders();
 
     bool hasContentLength() const;
@@ -294,6 +294,7 @@ public:
     void sendFrame(const QStompRequestFrame &frame);
 
     void setLogin(const QString &user = QString(), const QString &password = QString());
+    void setSelfSentFeature(bool b, const QString& headerKey = "sender");
     void setVirtualHost(const QString &host = QString("/"));
     void setHeartBeat(const int &outgoing = 0, const int &incoming = 0);
 
@@ -317,6 +318,8 @@ public:
     QString getConnectedStompSession() const;
     int getHeartBeatPingOutGoing() const;
     int getHeartBeatPongInComming() const;
+    bool selfSentFeatureEnabled() const;
+    bool selfSentHeaderKey() const;
 
     QAbstractSocket::SocketState socketState() const;
     QAbstractSocket::SocketError socketError() const;
