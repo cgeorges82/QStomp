@@ -418,6 +418,11 @@ void QStompResponseFrame::setMessage(const QString &value)
     this->setHeader("message", value);
 }
 
+bool QStompResponseFrame::isSelfSent() const
+{
+    return this->headerValue(Stomp::HeaderResponseSelfSent).toBool();
+}
+
 
 QStompRequestFrame::QStompRequestFrame() : QStompFrame(new QStompRequestFramePrivate)
 {
@@ -605,6 +610,7 @@ QStompClient::QStompClient(QObject *parent) : QObject(parent), pd_ptr(new QStomp
 
 QStompClient::~QStompClient()
 {
+    qDebug();
     QStompSubscription dummy(NULL, "*");
     unregisterSubscription(dummy);
     logout();
@@ -652,8 +658,13 @@ void QStompClient::sendFrame(const QStompRequestFrame &frame)
     }
 	P_D(QStompClient);
     QStompRequestFrame msg = frame;
-    msg.setHeader("sender", d->m_connectedHeaders.value(Stomp::HeaderConnectedSession).toString());
-    d->send(msg.toByteArray().append(Stomp::EndFrame));
+    if(d->m_selfSendFeature){
+        msg.setHeader(d->m_selfSendKey, getConnectedStompSession());
+    }
+    QByteArray serialized = msg.toByteArray().append(Stomp::EndFrame);
+    qDebug() << "Send" << Stomp::RequestCommandList.at(msg.type())
+             << "of" << serialized.size() << "bytes";
+    d->send(serialized);
 }
 
 void QStompClient::setLogin(const QString &user, const QString &password)
@@ -673,7 +684,9 @@ void QStompClient::setLogin(const QString &user, const QString &password)
 
 void QStompClient::setSelfSentFeature(bool b, const QString &headerKey)
 {
-
+    P_D(QStompClient);
+    d->m_selfSendFeature = b;
+    d->m_selfSendKey = headerKey;
 }
 
 void QStompClient::setVirtualHost(const QString &host) {
@@ -710,13 +723,14 @@ void QStompClient::registerSubscription(QStompSubscription & sub)
 
         d->m_subscriptions << sub;
         doSubcription(sub);
+    }else{
+        qWarning() << "Subscription for topic" << sub.d->m_subcribRequestFrame.destination() << "already exist with the same subscriber";
     }
 }
 
 void QStompClient::unregisterSubscription(QStompSubscription & sub)
 {
     P_D(QStompClient);
-    doUnSubcription(sub);
 
     // TODO disconnect &QObject::destroyed if no more subcription with sub.m_subcriber
     int destinationSubcribed = 0; //(by the subscriber)
@@ -731,7 +745,8 @@ void QStompClient::unregisterSubscription(QStompSubscription & sub)
             destinationSubcribed++;
         if(elemSub.d->m_subcriber.isNull() || elemSub.d->m_subcriber==sub.d->m_subcriber ||
                 sub.d->m_subcribRequestFrame.destination()=="*" || sub.d->m_subcribRequestFrame.destination()==elemSub.d->m_subcribRequestFrame.destination()){
-            d->m_subscriptions.removeAt(i);
+            doUnSubcription(elemSub);
+            d->m_subscriptions.takeAt(i);
             subcriptionRemoved++;
         }
     }
@@ -748,6 +763,7 @@ void QStompClient::unregisterSubscription(QObject *subcriber, const QString &des
 
 void QStompClient::logout()
 {
+    qDebug();
     doUnSubcriptions();
     this->sendFrame(QStompRequestFrame(Stomp::RequestDisconnect));
 }
@@ -851,7 +867,7 @@ bool QStompClient::selfSentFeatureEnabled() const
     return d->m_selfSendFeature;
 }
 
-bool QStompClient::selfSentHeaderKey() const
+QString QStompClient::selfSentHeaderKey() const
 {
     const P_D(QStompClient);
     return d->m_selfSendKey;
@@ -929,7 +945,7 @@ void QStompClient::stompConnected(QStompResponseFrame frame) {
         qDebug() << "heartBeat incoming:" << d->m_incomingPongInternal << "(must receive PING from server)";
         d->m_pongTimer.setInterval(d->m_incomingPongInternal);
         d->m_pongTimer.setSingleShot(false);
-        d->m_lastPong = QDateTime::currentDateTime();
+        d->m_lastReceivedPing = QDateTime::currentDateTime();
         d->m_pongTimer.start();
     }
 
@@ -937,9 +953,37 @@ void QStompClient::stompConnected(QStompResponseFrame frame) {
     emit frameConnectedReceived();
 }
 
-bool QStompClient::containsSubcription(const QStompSubscription &) const
+void QStompClient::stompMessageReceived(const QStompResponseFrame& frame)
 {
+    P_D(QStompClient);
+
+    if(frame.hasSubscriptionId()){
+        QString sub_id = frame.subscriptionId();
+        for(QStompSubscription sub : d->m_subscriptions){
+            if(sub.subscriptionFrame().subscriptionId() == sub_id){
+                sub.fireFrameMessage(frame);
+            }
+        }
+    }else{
+        QMetaObject::invokeMethod(this, "frameMessageReceived", Qt::QueuedConnection, Q_ARG(QStompResponseFrame,frame));
+    }
+}
+
+bool QStompClient::containsSubcription(const QStompSubscription & sub) const
+{
+    const P_D(QStompClient);
+    for(QStompSubscription subElem : d->m_subscriptions){
+        if((sub.d->m_subcriber.isNull() || subElem.d->m_subcriber == sub.d->m_subcriber) &&
+                (sub.d->m_subcribRequestFrame.destination()=="*" || subElem.d->m_subcribRequestFrame.destination()==sub.d->m_subcribRequestFrame.destination()))
+            return true;
+    }
     return false;
+}
+
+bool QStompClient::containsSubcription(QObject *subcriber, const QString &destination) const
+{
+    QStompSubscription sub(subcriber, destination);
+    return containsSubcription(sub);
 }
 
 void QStompClient::doSubcriptions()
@@ -961,6 +1005,7 @@ void QStompClient::doSubcription(QStompSubscription & sub)
         }
         d->send( sub.d->m_subcribRequestFrame.toByteArray().append(Stomp::EndFrame) );
         if(sub.d->m_welcomeMessage.isValid()){
+            qDebug() << "Send Welcome MSG";
             sendFrame(sub.d->m_welcomeMessage);
         }
     }
@@ -977,17 +1022,29 @@ void QStompClient::doUnSubcriptions()
 void QStompClient::doUnSubcription(QStompSubscription &sub)
 {
     P_D(QStompClient);
-    if(!d->m_connectedHeaders.isEmpty()) {
-        QStompRequestFrame unSub(Stomp::RequestUnsubscribe);
-        unSub.setHeader(sub.d->m_subcribRequestFrame.header());
-//        if(d->m_stompVersion != Stomp::ProtocolStomp_1_0){
-//            QString sub_id = sub.d->m_subcribRequestFrame.subscriptionId();
-//            sub.d->m_goodbyeMessage.setSubscriptionId( sub_id );
+    if(!d->m_connectedHeaders.isEmpty() && sub.subscriptionFrame().hasSubscriptionId()) {
+        QStompRequestFrame reqSub = sub.subscriptionFrame();
+        QStompRequestFrame reqUnSub(Stomp::RequestUnsubscribe);
+//        if(d->m_stompVersion == Stomp::ProtocolStomp_1_0){
+            reqUnSub.setDestination(reqSub.destination());
+//        }else{
+//            reqUnSub.setSubscriptionId(reqSub.subscriptionId());
 //        }
         if(sub.d->m_goodbyeMessage.isValid()) {
+            qDebug() << "Send GoodBye MSG";
             sendFrame(sub.d->m_goodbyeMessage);
         }
-        d->send( unSub.toByteArray().append(Stomp::EndFrame) );
+        QByteArray serialized = reqUnSub.toByteArray().append(Stomp::EndFrame);
+        qDebug() << "Send" << Stomp::RequestCommandList.at(reqUnSub.type())
+                 << "of" << serialized.size() << "bytes";
+        qDebug() << serialized;
+        if(d->send( serialized ) != -1){
+            d->m_socket->flush();
+        }
+
+
+        reqSub.removeHeader(Stomp::HeaderRequestSubscription);
+        sub.d->m_subcribRequestFrame = reqSub;
     }
 }
 
@@ -1021,7 +1078,7 @@ void QStompClient::on_subcriberDestroyed(QObject * subscriber)
 
 void QStompClientPrivate::_q_checkPong(){
     if(this->m_socket && this->m_socket->isValid() && this->m_incomingPongInternal > 0){
-        qint64 elapted = this->m_lastPong.msecsTo(QDateTime::currentDateTime());
+        qint64 elapted = this->m_lastReceivedPing.msecsTo(QDateTime::currentDateTime());
         if(elapted > this->m_incomingPongInternal*2) {
             qWarning() << "Connexion with server too long time without PING";
             this->m_socket->disconnectFromHost();
@@ -1042,11 +1099,12 @@ void QStompClientPrivate::_q_sendPing(){
     }
 }
 
-void QStompClientPrivate::send(const QByteArray& serialized){
+qint64 QStompClientPrivate::send(const QByteArray& serialized){
     if (this->m_socket == NULL || this->m_socket->state() != QAbstractSocket::ConnectedState)
-        return;
-    qDebug() << serialized;
-    this->m_socket->write(serialized);
+        return -1;
+    qint64 bytes = this->m_socket->write(serialized);
+    qDebug() << "Written" << bytes << "bytes";
+    return bytes;
 }
 
 void QStompClientPrivate::_q_socketReadyRead()
@@ -1056,7 +1114,7 @@ void QStompClientPrivate::_q_socketReadyRead()
 
     if(this->m_incomingPongInternal>0 && this->m_buffer.isEmpty() && data == Stomp::PingContent){
         qDebug() << ">>> PONG";
-        this->m_lastPong = QDateTime::currentDateTime();
+        this->m_lastReceivedPing = QDateTime::currentDateTime();
         return;
     }
 
@@ -1066,18 +1124,23 @@ void QStompClientPrivate::_q_socketReadyRead()
 	while ((length = this->findMessageBytes())) {
 		QStompResponseFrame frame(this->m_buffer.left(length));
 		if (frame.isValid()) {
-            qDebug() << frame.toByteArray();
+            if(this->m_selfSendFeature){
+                frame.setHeader(Stomp::HeaderResponseSelfSent, frame.headerValue(this->m_selfSendKey) == q->getConnectedStompSession());
+//                frame.removeHeader(this->m_selfSendKey);
+            }
             switch(frame.type()) {
             case Stomp::ResponseConnected :
                 q->stompConnected(frame);
                 break;
             case Stomp::ResponseMessage :
-                emit q->frameMessageReceived(frame);
+                q->stompMessageReceived(frame);
                 break;
             case Stomp::ResponseReceipt :
+                qDebug() << frame.toByteArray();
                 emit q->frameReceiptReceived(frame);
                 break;
             case Stomp::ResponseError :
+                qCritical() << frame.toByteArray();
                 emit q->frameErrorReceived(frame);
                 break;
             default:
@@ -1212,8 +1275,8 @@ void QStompSubscription::resetWelcomeMessage()
 void QStompSubscription::setGoodByeMessage(const QString &body, const QVariantMap &headers)
 {
     d->m_goodbyeMessage = QStompRequestFrame(Stomp::RequestSend);
-    d->m_goodbyeMessage.setDestination(d->m_subcribRequestFrame.destination());
     d->m_goodbyeMessage.setHeader(headers);
+    d->m_goodbyeMessage.setDestination(d->m_subcribRequestFrame.destination());
     d->m_goodbyeMessage.setBody(body);
 }
 
@@ -1225,6 +1288,11 @@ void QStompSubscription::resetGoodByeMessage()
 bool QStompSubscription::isValid() const
 {
     return d->m_subcriber && d->m_slotMethod.isValid();
+}
+
+QStompRequestFrame QStompSubscription::subscriptionFrame() const
+{
+    return d->m_subcribRequestFrame;
 }
 
 

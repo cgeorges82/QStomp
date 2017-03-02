@@ -100,6 +100,12 @@ namespace Stomp {
     const QString HeaderResponseDestination("destination");
     const QString HeaderResponseMessageID("message-id");
     const QString HeaderResponseMessage("message");
+    const QString HeaderResponseSubscription("subscription");
+    const QString HeaderResponseSelfSent("self-sent");
+
+    const QString HeaderRequestDestination("destination");
+    const QString HeaderRequestACK("ack");
+    const QString HeaderRequestSubscription("id");
 
     const QByteArray PingContent(1, 0x0A);
     const QByteArray EndFrame = QByteArray().append('\0').append('\n');
@@ -187,6 +193,8 @@ public:
     QString message() const;
     void setMessage(const QString &value);
 
+    bool isSelfSent() const;
+
     QByteArray toByteArray() const;
 
 protected:
@@ -259,6 +267,8 @@ public:
 
     bool isValid() const;
 
+    QStompRequestFrame subscriptionFrame() const;
+
 protected:
     QStompSubscription(QObject *subcriber, const QString &destination, const QVariantMap &headers = QVariantMap());
     void fireFrameMessage(QStompResponseFrame);
@@ -302,6 +312,8 @@ public:
     void registerSubscription(QStompSubscription &);
     void unregisterSubscription(QStompSubscription &);
     void unregisterSubscription(QObject *subcriber, const QString &destination);
+    bool containsSubcription(const QStompSubscription&) const;
+    bool containsSubcription(QObject *subcriber, const QString &destination) const;
 
     void logout();
     void send(const QString &destination, const QString &body, const QString &transactionId = QString(), const QVariantMap &headers = QVariantMap());
@@ -319,7 +331,7 @@ public:
     int getHeartBeatPingOutGoing() const;
     int getHeartBeatPongInComming() const;
     bool selfSentFeatureEnabled() const;
-    bool selfSentHeaderKey() const;
+    QString selfSentHeaderKey() const;
 
     QAbstractSocket::SocketState socketState() const;
     QAbstractSocket::SocketError socketError() const;
@@ -345,11 +357,11 @@ Q_SIGNALS:
 
 protected:
     void stompConnected(QStompResponseFrame);
-    bool containsSubcription(const QStompSubscription&) const;
+    void stompMessageReceived(const QStompResponseFrame &frame);
     void doSubcriptions();
     void doSubcription(QStompSubscription &);
     void doUnSubcriptions();
-    void doUnSubcription(QStompSubscription&);
+    void doUnSubcription(QStompSubscription &);
 protected slots:
     void on_socketConnected();
     void on_socketDisconnected();
