@@ -956,17 +956,21 @@ void QStompClient::stompConnected(QStompResponseFrame frame) {
 void QStompClient::stompMessageReceived(const QStompResponseFrame& frame)
 {
     P_D(QStompClient);
-
+    int fireCount = 0;
     if(frame.hasSubscriptionId()){
         QString sub_id = frame.subscriptionId();
         for(QStompSubscription sub : d->m_subscriptions){
             if(sub.subscriptionFrame().subscriptionId() == sub_id){
+                fireCount++;
                 sub.fireFrameMessage(frame);
             }
         }
-    }else{
+    }
+    if(!frame.hasSubscriptionId() || fireCount==0){
+        qDebug() << "Unable to match subcription. Transmit message to Stomp client";
         QMetaObject::invokeMethod(this, "frameMessageReceived", Qt::QueuedConnection, Q_ARG(QStompResponseFrame,frame));
     }
+
 }
 
 bool QStompClient::containsSubcription(const QStompSubscription & sub) const
