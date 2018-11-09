@@ -286,7 +286,7 @@ class QSTOMP_SHARED_EXPORT QStompClient : public QObject
     P_DECLARE_PRIVATE(QStompClient)
 public:
 
-    explicit QStompClient(QObject *parent = 0);
+    explicit QStompClient(QObject *parent = nullptr);
     virtual ~QStompClient();
 
     enum Error {

@@ -600,7 +600,7 @@ void QStompRequestFrame::setSubscriptionId(const QString &value)
 QStompClient::QStompClient(QObject *parent) : QObject(parent), pd_ptr(new QStompClientPrivate(this))
 {
 	P_D(QStompClient);
-	d->m_socket = NULL;
+    d->m_socket = nullptr;
 	d->m_textCodec = QTextCodec::codecForName("utf-8");
     d->m_connectionFrame.setHeader(Stomp::HeaderConnectAcceptVersion, Stomp::ProtocolList.join(','));
     d->m_connectionFrame.setHeader(Stomp::HeaderConnectHost, "/");
@@ -611,7 +611,7 @@ QStompClient::QStompClient(QObject *parent) : QObject(parent), pd_ptr(new QStomp
 QStompClient::~QStompClient()
 {
     qDebug();
-    QStompSubscription dummy(NULL, "*");
+    QStompSubscription dummy(nullptr, "*");
     unregisterSubscription(dummy);
     logout();
 	delete this->pd_ptr;
@@ -620,7 +620,7 @@ QStompClient::~QStompClient()
 void QStompClient::connectToHost(const QString &hostname, quint16 port)
 {
 	P_D(QStompClient);
-	if (d->m_socket != NULL && d->m_socket->parent() == this)
+    if (d->m_socket != nullptr && d->m_socket->parent() == this)
 		delete d->m_socket;
 	d->m_socket = new QTcpSocket(this);
     connect(d->m_socket, SIGNAL(connected()), this, SLOT(on_socketConnected()));
@@ -634,7 +634,7 @@ void QStompClient::connectToHost(const QString &hostname, quint16 port)
 void QStompClient::setSocket(QTcpSocket *socket)
 {
 	P_D(QStompClient);
-	if (d->m_socket != NULL && d->m_socket->parent() == this)
+    if (d->m_socket != nullptr && d->m_socket->parent() == this)
 		delete d->m_socket;
 	d->m_socket = socket;
 	connect(d->m_socket, SIGNAL(connected()), this, SLOT(on_socketConnected()));
@@ -876,7 +876,7 @@ QString QStompClient::selfSentHeaderKey() const
 QAbstractSocket::SocketState QStompClient::socketState() const
 {
 	const P_D(QStompClient);
-	if (d->m_socket == NULL)
+    if (d->m_socket == nullptr)
 		return QAbstractSocket::UnconnectedState;
 	return d->m_socket->state();
 }
@@ -884,7 +884,7 @@ QAbstractSocket::SocketState QStompClient::socketState() const
 QAbstractSocket::SocketError QStompClient::socketError() const
 {
 	const P_D(QStompClient);
-	if (d->m_socket == NULL)
+    if (d->m_socket == nullptr)
 		return QAbstractSocket::UnknownSocketError;
 	return d->m_socket->error();
 }
@@ -892,7 +892,7 @@ QAbstractSocket::SocketError QStompClient::socketError() const
 QString QStompClient::socketErrorString() const
 {
 	const P_D(QStompClient);
-	if (d->m_socket == NULL)
+    if (d->m_socket == nullptr)
 		return QLatin1String("No socket");
 	return d->m_socket->errorString();
 }
@@ -918,7 +918,7 @@ void QStompClient::setContentEncoding(const QTextCodec * codec)
 void QStompClient::disconnectFromHost()
 {
 	P_D(QStompClient);
-	if (d->m_socket != NULL)
+    if (d->m_socket != nullptr)
         d->m_socket->disconnectFromHost();
 }
 
@@ -937,7 +937,7 @@ void QStompClient::stompConnected(QStompResponseFrame frame) {
     }
     if(d->m_outgoingPingInternal > 0){
         qDebug() << "heartBeat outgoing:" << d->m_outgoingPingInternal << "(must send PING to server)";
-        d->m_pongTimer.setInterval(d->m_outgoingPingInternal);
+        d->m_pingTimer.setInterval(d->m_outgoingPingInternal);
         d->m_pingTimer.setSingleShot(true);
         d->m_pingTimer.start(d->m_outgoingPingInternal);
     }
@@ -1074,7 +1074,7 @@ void QStompClient::on_socketDisconnected() {
 
 void QStompClient::on_subcriberDestroyed(QObject * subscriber)
 {
-    if(subscriber == NULL)
+    if(subscriber == nullptr)
         subscriber = sender();
     QStompSubscription sub(subscriber, "*");
     unregisterSubscription(sub);
@@ -1104,7 +1104,7 @@ void QStompClientPrivate::_q_sendPing(){
 }
 
 qint64 QStompClientPrivate::send(const QByteArray& serialized){
-    if (this->m_socket == NULL || this->m_socket->state() != QAbstractSocket::ConnectedState)
+    if (this->m_socket == nullptr || this->m_socket->state() != QAbstractSocket::ConnectedState)
         return -1;
     qint64 bytes = this->m_socket->write(serialized);
     qDebug() << "Written" << bytes << "bytes";
