@@ -1304,8 +1304,10 @@ void QStompSubscription::fireFrameMessage(QStompResponseFrame frame)
 {
     if(isValid()){
         if(d->m_slotMethod.parameterType(0) == QMetaType::QVariantMap) {
+            QVariantMap headers = frame.header();
+            headers["subscription"] = subscriptionFrame().header();
             QVariantMap msg = {
-                { "header", frame.header() },
+                { "header", headers },
                 { "body", frame.body() }
             };
             d->m_slotMethod.invoke(d->m_subcriber, Qt::QueuedConnection, Q_ARG(QVariantMap, msg));
