@@ -230,7 +230,7 @@ bool QStompFrame::parse(const QByteArray &frame)
     }
     if (this->hasContentLength())
         d->m_body.resize(this->contentLength());
-    else if (d->m_body.endsWith(QByteArray("\0\n", 2)))
+    else if (d->m_body.endsWith(Stomp::EndFrame ))
         d->m_body.chop(2);
 
     return true;
@@ -341,77 +341,77 @@ QByteArray QStompResponseFrame::toByteArray() const
 
 bool QStompResponseFrame::hasDestination() const
 {
-    return this->headerHasKey("destination");
+    return this->headerHasKey(Stomp::HeaderResponseDestination);
 }
 
 QString QStompResponseFrame::destination() const
 {
-    return this->headerValue("destination").toString();
+    return this->headerValue(Stomp::HeaderResponseDestination).toString();
 }
 
 void QStompResponseFrame::setDestination(const QString &value)
 {
-    this->setHeader("destination", value);
+    this->setHeader(Stomp::HeaderResponseDestination, value);
 }
 
 bool QStompResponseFrame::hasSubscriptionId() const
 {
-    return this->headerHasKey("subscription");
+    return this->headerHasKey(Stomp::HeaderResponseSubscription);
 }
 
 QString QStompResponseFrame::subscriptionId() const
 {
-    return this->headerValue("subscription").toString();
+    return this->headerValue(Stomp::HeaderResponseSubscription).toString();
 }
 
 void QStompResponseFrame::setSubscriptionId(const QString &value)
 {
-    this->setHeader("subscription", value);
+    this->setHeader(Stomp::HeaderResponseSubscription, value);
 }
 
 bool QStompResponseFrame::hasMessageId() const
 {
-    return this->headerHasKey("message-id");
+    return this->headerHasKey(Stomp::HeaderResponseMessageID);
 }
 
 QString QStompResponseFrame::messageId() const
 {
-    return this->headerValue("message-id").toString();
+    return this->headerValue(Stomp::HeaderResponseMessageID).toString();
 }
 
 void QStompResponseFrame::setMessageId(const QString &value)
 {
-    this->setHeader("message-id", value);
+    this->setHeader(Stomp::HeaderResponseMessageID, value);
 }
 
 bool QStompResponseFrame::hasReceiptId() const
 {
-    return this->headerHasKey("receipt-id");
+    return this->headerHasKey(Stomp::HeaderResponseReceiptID);
 }
 
 QString QStompResponseFrame::receiptId() const
 {
-    return this->headerValue("receipt-id").toString();
+    return this->headerValue(Stomp::HeaderResponseReceiptID).toString();
 }
 
 void QStompResponseFrame::setReceiptId(const QString &value)
 {
-    this->setHeader("receipt-id", value);
+    this->setHeader(Stomp::HeaderResponseReceiptID, value);
 }
 
 bool QStompResponseFrame::hasMessage() const
 {
-    return this->headerHasKey("message");
+    return this->headerHasKey(Stomp::HeaderResponseMessage);
 }
 
 QString QStompResponseFrame::message() const
 {
-    return this->headerValue("message").toString();
+    return this->headerValue(Stomp::HeaderResponseMessage).toString();
 }
 
 void QStompResponseFrame::setMessage(const QString &value)
 {
-    this->setHeader("message", value);
+    this->setHeader(Stomp::HeaderResponseMessage, value);
 }
 
 bool QStompResponseFrame::isSelfSent() const
@@ -500,72 +500,72 @@ QByteArray QStompRequestFrame::toByteArray() const
 
 bool QStompRequestFrame::hasDestination() const
 {
-    return this->headerHasKey("destination");
+    return this->headerHasKey(Stomp::HeaderRequestDestination);
 }
 
 QString QStompRequestFrame::destination() const
 {
-    return this->headerValue("destination").toString();
+    return this->headerValue(Stomp::HeaderRequestDestination).toString();
 }
 
 void QStompRequestFrame::setDestination(const QString &value)
 {
-    this->setHeader("destination", value);
+    this->setHeader(Stomp::HeaderRequestDestination, value);
 }
 
 bool QStompRequestFrame::hasTransactionId() const
 {
-    return this->headerHasKey("transaction");
+    return this->headerHasKey(Stomp::HeaderRequestTransactionID);
 }
 
 QString QStompRequestFrame::transactionId() const
 {
-    return this->headerValue("transaction").toString();
+    return this->headerValue(Stomp::HeaderRequestTransactionID).toString();
 }
 
 void QStompRequestFrame::setTransactionId(const QString &value)
 {
-    this->setHeader("transaction", value);
+    this->setHeader(Stomp::HeaderRequestTransactionID, value);
 }
 
 bool QStompRequestFrame::hasMessageId() const
 {
-    return this->headerHasKey("message-id");
+    return this->headerHasKey(Stomp::HeaderRequestMessageID);
 }
 
 QString QStompRequestFrame::messageId() const
 {
-    return this->headerValue("message-id").toString();
+    return this->headerValue(Stomp::HeaderRequestMessageID).toString();
 }
 
 void QStompRequestFrame::setMessageId(const QString &value)
 {
-    this->setHeader("message-id", value);
+    this->setHeader(Stomp::HeaderRequestMessageID, value);
 }
 
 bool QStompRequestFrame::hasReceiptId() const
 {
-    return this->headerHasKey("receipt");
+    return this->headerHasKey(Stomp::HeaderRequestReceiptID);
 }
 
 QString QStompRequestFrame::receiptId() const
 {
-    return this->headerValue("receipt").toString();
+    return this->headerValue(Stomp::HeaderRequestReceiptID).toString();
 }
 
 void QStompRequestFrame::setReceiptId(const QString &value)
 {
-    this->setHeader("receipt", value);
+    this->setHeader(Stomp::HeaderRequestReceiptID, value);
 }
 
 bool QStompRequestFrame::hasAckType() const
 {
-    return this->headerHasKey("ack");
+    return this->headerHasKey(Stomp::HeaderRequestACK);
 }
 
 Stomp::AckType QStompRequestFrame::ackType() const
 {
-    int ackTypeIdx = Stomp::AckTypeList.indexOf(this->headerValue("ack").toString());
+    int ackTypeIdx = Stomp::AckTypeList.indexOf(this->headerValue(Stomp::HeaderRequestACK).toString());
     if(ackTypeIdx >= 0 && ackTypeIdx < Stomp::AckTypeList.size())
         return static_cast<Stomp::AckType>(ackTypeIdx);
 
@@ -574,22 +574,22 @@ Stomp::AckType QStompRequestFrame::ackType() const
 
 void QStompRequestFrame::setAckType(Stomp::AckType type)
 {
-    this->setHeader("ack", Stomp::AckTypeList.at( int(type) ));
+    this->setHeader(Stomp::HeaderRequestACK, Stomp::AckTypeList.at( int(type) ));
 }
 
 bool QStompRequestFrame::hasSubscriptionId() const
 {
-    return this->headerHasKey("id");
+    return this->headerHasKey(Stomp::HeaderRequestSubscription);
 }
 
 QString QStompRequestFrame::subscriptionId() const
 {
-    return this->headerValue("id").toString();
+    return this->headerValue(Stomp::HeaderRequestSubscription).toString();
 }
 
 void QStompRequestFrame::setSubscriptionId(const QString &value)
 {
-    this->setHeader("id", value);
+    this->setHeader(Stomp::HeaderRequestSubscription, value);
 }
 
 

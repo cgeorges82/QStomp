@@ -99,11 +99,15 @@ namespace Stomp {
 
     const QString HeaderResponseDestination("destination");
     const QString HeaderResponseMessageID("message-id");
+    const QString HeaderResponseReceiptID("receipt-id");
     const QString HeaderResponseMessage("message");
     const QString HeaderResponseSubscription("subscription");
     const QString HeaderResponseSelfSent("self-sent");
 
     const QString HeaderRequestDestination("destination");
+    const QString HeaderRequestTransactionID("transaction");
+    const QString HeaderRequestReceiptID("receipt");
+    const QString HeaderRequestMessageID("message-id");
     const QString HeaderRequestACK("ack");
     const QString HeaderRequestSubscription("id");
 
