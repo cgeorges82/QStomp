@@ -42,7 +42,7 @@ CONFIG(debug, debug|release) {
     TARGET = qstomp
 } # CONFIG(debug, debug|release)
 
-VERSION = 0.3.2
+VERSION = 0.3.3
 INSTALLS += target dist_headers
 macx {
 	CONFIG += lib_bundle

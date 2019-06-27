@@ -110,27 +110,27 @@ void QStompFrame::removeAllHeaders()
 
 bool QStompFrame::hasContentLength() const
 {
-    return this->headerHasKey("content-length");
+    return this->headerHasKey(Stomp::HeaderContentLength);
 }
 
 int QStompFrame::contentLength() const
 {
-    return this->headerValue("content-length").toInt();
+    return this->headerValue(Stomp::HeaderContentLength).toInt();
 }
 
 void QStompFrame::setContentLength(uint len)
 {
-    this->setHeader("content-length", QByteArray::number(len));
+    this->setHeader(Stomp::HeaderContentLength, QByteArray::number(len));
 }
 
 bool QStompFrame::hasContentType() const
 {
-    return this->headerHasKey("content-type");
+    return this->headerHasKey(Stomp::HeaderContentType);
 }
 
 QByteArray QStompFrame::contentType() const
 {
-    QByteArray type = this->headerValue("content-type").toByteArray();
+    QByteArray type = this->headerValue(Stomp::HeaderContentType).toByteArray();
     if (type.isEmpty())
         return QByteArray();
 
@@ -143,30 +143,30 @@ QByteArray QStompFrame::contentType() const
 
 void QStompFrame::setContentType(const QByteArray &type)
 {
-    this->setHeader("content-type", type);
+    this->setHeader(Stomp::HeaderContentType, type);
 }
 
 bool QStompFrame::hasContentEncoding() const
 {
-    return this->headerHasKey("content-length");
+    return this->headerHasKey(Stomp::HeaderContentEncoding);
 }
 
 QByteArray QStompFrame::contentEncoding() const
 {
-    return this->headerValue("content-encoding").toByteArray();
+    return this->headerValue(Stomp::HeaderContentEncoding).toByteArray();
 }
 
 void QStompFrame::setContentEncoding(const QByteArray &name)
 {
     P_D(QStompFrame);
-    this->setHeader("content-encoding", name);
+    this->setHeader(Stomp::HeaderContentEncoding, name);
     d->m_textCodec = QTextCodec::codecForName(name);
 }
 
 void QStompFrame::setContentEncoding(const QTextCodec * codec)
 {
     P_D(QStompFrame);
-    this->setHeader("content-encoding", codec->name());
+    this->setHeader(Stomp::HeaderContentEncoding, codec->name());
     d->m_textCodec = codec;
 }
 
@@ -1025,19 +1025,15 @@ void QStompClient::doUnSubcription(QStompSubscription &sub)
     if(!d->m_connectedHeaders.isEmpty() && sub.subscriptionFrame().hasSubscriptionId()) {
         QStompRequestFrame reqSub = sub.subscriptionFrame();
         QStompRequestFrame reqUnSub(Stomp::RequestUnsubscribe);
-        //        if(d->m_stompVersion == Stomp::ProtocolStomp_1_0){
-        //            reqUnSub.setDestination(reqSub.destination());
-        //        }else{
         reqUnSub.setSubscriptionId(reqSub.subscriptionId());
-        //        }
         if(sub.d->m_goodbyeMessage.isValid()) {
-            qDebug() << "Send GoodBye MSG";
+//            qDebug() << "Send GoodBye MSG";
             sendFrame(sub.d->m_goodbyeMessage);
         }
         QByteArray serialized = reqUnSub.toByteArray().append(Stomp::EndFrame);
-        qDebug() << "Send" << Stomp::RequestCommandList.at(reqUnSub.type())
-                 << "of" << serialized.size() << "bytes";
-        qDebug() << serialized;
+//        qDebug() << "Send" << Stomp::RequestCommandList.at(reqUnSub.type())
+//                 << "of" << serialized.size() << "bytes";
+//        qDebug() << serialized;
         if(d->send( serialized ) != -1){
             d->m_socket->flush();
         }
@@ -1120,7 +1116,7 @@ void QStompClientPrivate::_q_socketReadyRead()
 
     this->m_buffer.append(data);
 
-    quint32 length;
+    qint32 length;
     while ((length = this->findMessageBytes())) {
         QStompResponseFrame frame(this->m_buffer.left(length));
         if (frame.isValid()) {
@@ -1153,7 +1149,7 @@ void QStompClientPrivate::_q_socketReadyRead()
     }
 }
 
-quint32 QStompClientPrivate::findMessageBytes()
+int QStompClientPrivate::findMessageBytes()
 {
     // Buffer sanity check
     forever {
@@ -1163,7 +1159,7 @@ quint32 QStompClientPrivate::findMessageBytes()
         if (nl == -1)
             break;
         QByteArray cmd = this->m_buffer.left(nl);
-        if (VALID_COMMANDS.contains(cmd))
+        if (Stomp::ResponseCommandList.contains(cmd))
             break;
         else {
             qDebug("QStomp: Framebuffer corrupted, repairing...");
@@ -1188,9 +1184,9 @@ quint32 QStompClientPrivate::findMessageBytes()
         int nl = this->m_buffer.indexOf('\n', clPos);
         if (colon != -1 && nl != -1 && nl > colon) {
             bool ok = false;
-            quint32 cl = this->m_buffer.mid(colon, nl-colon).toUInt(&ok) + headerEnd+2;
+            int cl = this->m_buffer.mid(colon, nl-colon).toInt(&ok) + headerEnd+2;
             if (ok) {
-                if ((quint32)this->m_buffer.size() >= cl)
+                if (this->m_buffer.size() >= cl)
                     return cl;
                 else
                     return 0;
@@ -1206,10 +1202,10 @@ quint32 QStompClientPrivate::findMessageBytes()
         if (end == -1)
             return 0;
         else
-            return (quint32) end+1;
+            return end+1;
     }
     else
-        return (quint32) end+2;
+        return end+2;
 }
 
 

@@ -87,7 +87,7 @@ public:
 
     QList<QStompSubscription> m_subscriptions;
 
-    quint32 findMessageBytes();
+    int findMessageBytes();
     qint64 send(const QByteArray&);
 
     void _q_socketReadyRead();
